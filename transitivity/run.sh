@@ -65,6 +65,11 @@ function main() {
    run 'memory' 22  100
    run 'memory' 47  50
    run 'memory' 101 10
+
+   run 'disk' 10  100
+   run 'disk' 22  100
+   run 'disk' 47  50
+   run 'disk' 101 10
 }
 
 main "$@"

@@ -163,6 +163,48 @@ public class TransitivityBenchmark {
       close();
    }
 
+   public static void doRuns(H2DatabaseDriver.Type dbType, int numUsers, int numRuns) {
+      long totalTime = 0;
+      long minTime = 0;
+      long maxTime = 0;
+
+      // The cold start is a special case, do not include it in the total runtimes.
+      long coldStart = 0;
+
+      for (int i = 0; i < numRuns + 1; i++) {
+         TransitivityBenchmark tb = new TransitivityBenchmark(dbType, numUsers);
+         long runtime = tb.run();
+         tb.close();
+
+         if (i == 0) {
+            coldStart = runtime;
+            continue;
+         }
+
+         totalTime += runtime;
+
+         if (i == 1 || runtime < minTime) {
+            minTime = runtime;
+         }
+
+         if (i == 1 || runtime > maxTime) {
+            maxTime = runtime;
+         }
+      }
+      
+      System.out.println(String.format(
+         "numUsers: %d, dbType: %s, numRuns: %d, totalTime: %d, coldStart: %d, minTime: %d, maxTime: %d, meanTime: %d",
+         numUsers,
+         dbType,
+         numRuns,
+         totalTime,
+         coldStart,
+         minTime,
+         maxTime,
+         (long)(totalTime / numRuns)
+      ));
+   }
+
    public static void main(String[] args) {
       if (args.size() != 3) {
          System.err.println(String.format(
@@ -213,38 +255,5 @@ public class TransitivityBenchmark {
       }
 
       doRuns(dbType, numUsers, numRuns);
-   }
-
-   public static void doRuns(H2DatabaseDriver.Type dbType, int numUsers, int numRuns) {
-      long totalTime = 0;
-      long minTime = 0;
-      long maxTime = 0;
-
-      for (int i = 0; i < numRuns; i++) {
-         TransitivityBenchmark tb = new TransitivityBenchmark(dbType, numUsers);
-         long runtime = tb.run();
-         tb.close();
-
-         totalTime += runtime;
-
-         if (i == 0 || runtime < minTime) {
-            minTime = runtime;
-         }
-
-         if (i == 0 || runtime > maxTime) {
-            maxTime = runtime;
-         }
-      }
-      
-      System.out.println(String.format(
-         "numUsers: %d, dbType: %s, numRuns: %d, totalTime: %d, minTime: %d, maxTime: %d, meanTime: %d",
-         numUsers,
-         dbType,
-         numRuns,
-         totalTime,
-         minTime,
-         maxTime,
-         (long)(totalTime / numRuns)
-      ));
    }
 }
