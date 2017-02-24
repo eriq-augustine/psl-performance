@@ -38,6 +38,13 @@ import java.nio.file.Paths;
  * Number of ground rules = 2 * nP2 + nP3 = n^2 * (n - 1)
  */
 public class TransitivityBenchmark {
+   private static final int ARG_POS_DB_TPYE = 0;
+   private static final int ARG_POS_NUM_USERS = 1;
+   private static final int ARG_POS_NUM_RUNS = 2;
+
+   private static final String ARG_DB_TYPE_DISK = "disk";
+   private static final String ARG_DB_TYPE_MEMORY = "memory";
+
    private static final String PARTITION_OBSERVATIONS = "observations";
    private static final String PARTITION_TARGETS = "targets";
 
@@ -50,11 +57,11 @@ public class TransitivityBenchmark {
    private Random rand;
    private ConfigBundle config;
 
-   public TransitivityBenchmark(int numUsers) {
+   public TransitivityBenchmark(H2DatabaseDriver.Type dbType, int numUsers) {
       this.numUsers = numUsers;
       rand = new Random(SEED);
       config = new EmptyBundle();
-      dataStore = new RDBMSDataStore(new H2DatabaseDriver(Type.Memory, DB_PATH, true), config);
+      dataStore = new RDBMSDataStore(new H2DatabaseDriver(dbType, DB_PATH, true), config);
       model = new PSLModel(this, dataStore);
    }
 
@@ -116,21 +123,33 @@ public class TransitivityBenchmark {
       }
    }
 
-   private void runInference() {
+   /**
+    * Run inference and get the runtime.
+    */
+   private long runInference() {
       HashSet closed = new HashSet<StandardPredicate>([Similar]);
       Database inferDB = dataStore.getDatabase(dataStore.getPartition(PARTITION_TARGETS),
                                                closed, dataStore.getPartition(PARTITION_OBSERVATIONS));
+
+      long startTime = System.currentTimeMillis();
       MPEInference mpe = new MPEInference(model, inferDB, config);
       mpe.mpeInference();
+      long endTime = System.currentTimeMillis();
+
       mpe.close();
       inferDB.close();
+
+      return Math.max(0, endTime - startTime);
    }
 
-   public void run() {
+   /**
+    * Run the entire process and return the runtime (in ms) of inference.
+    */
+   public long run() {
       definePredicates();
       defineRules();
       loadData();
-      runInference();
+      return runInference();
    }
 
    public void close() {
@@ -145,26 +164,87 @@ public class TransitivityBenchmark {
    }
 
    public static void main(String[] args) {
-      if (args.size() < 1 || args.size() > 1) {
-         System.err.println(String.format("USAGE: java %s <number of users>", TransitivityBenchmark.class.getName()));
+      if (args.size() != 3) {
+         System.err.println(String.format(
+            "USAGE: java %s <'%s' or '%s'> <number of users> <number of runs>",
+            TransitivityBenchmark.class.getName(),
+            ARG_DB_TYPE_DISK,
+            ARG_DB_TYPE_MEMORY
+         ));
          System.exit(1);
       }
 
+      H2DatabaseDriver.Type dbType = null; 
       int numUsers = -1;
-      try {
-         numUsers = Integer.parseInt(args[0]);
-      } catch (NumberFormatException ex) {
-         System.err.println("Number of users must be an int. (Found: '" + args[0] + "')");
+      int numRuns = -1;
+
+      if (args[ARG_POS_DB_TPYE].equals(ARG_DB_TYPE_DISK)) {
+         dbType = H2DatabaseDriver.Type.Disk;
+      } else if (args[ARG_POS_DB_TPYE].equals(ARG_DB_TYPE_MEMORY)) {
+         dbType = H2DatabaseDriver.Type.Memory;
+      } else {
+         System.err.println(String.format("Database type must be '%s' or '%s'.",
+               ARG_DB_TYPE_DISK, ARG_DB_TYPE_MEMORY));
          System.exit(2);
+      }
+
+      try {
+         numUsers = Integer.parseInt(args[ARG_POS_NUM_USERS]);
+      } catch (NumberFormatException ex) {
+         System.err.println("Number of users must be an int. (Found: '" + args[ARG_POS_NUM_USERS] + "')");
+         System.exit(3);
       }
 
       if (numUsers < 1) {
          System.err.println("Must have at least one user. Given: " + numUsers);
-         System.exit(3);
+         System.exit(4);
       }
 
-      TransitivityBenchmark tb = new TransitivityBenchmark(numUsers);
-      tb.run();
-      tb.close();
+      try {
+         numRuns = Integer.parseInt(args[ARG_POS_NUM_RUNS]);
+      } catch (NumberFormatException ex) {
+         System.err.println("Number of runs must be an int. (Found: '" + args[ARG_POS_NUM_RUNS] + "')");
+         System.exit(5);
+      }
+
+      if (numRuns < 1) {
+         System.err.println("Must have at least one run. Given: " + numRuns);
+         System.exit(6);
+      }
+
+      doRuns(dbType, numUsers, numRuns);
+   }
+
+   public static void doRuns(H2DatabaseDriver.Type dbType, int numUsers, int numRuns) {
+      long totalTime = 0;
+      long minTime = 0;
+      long maxTime = 0;
+
+      for (int i = 0; i < numRuns; i++) {
+         TransitivityBenchmark tb = new TransitivityBenchmark(dbType, numUsers);
+         long runtime = tb.run();
+         tb.close();
+
+         totalTime += runtime;
+
+         if (i == 0 || runtime < minTime) {
+            minTime = runtime;
+         }
+
+         if (i == 0 || runtime > maxTime) {
+            maxTime = runtime;
+         }
+      }
+      
+      System.out.println(String.format(
+         "numUsers: %d, dbType: %s, numRuns: %d, totalTime: %d, minTime: %d, maxTime: %d, meanTime: %d",
+         numUsers,
+         dbType,
+         numRuns,
+         totalTime,
+         minTime,
+         maxTime,
+         (long)(totalTime / numRuns)
+      ));
    }
 }

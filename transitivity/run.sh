@@ -25,7 +25,7 @@ function check_requirements() {
 }
 
 function compile() {
-   mvn compile
+   mvn compile > /dev/null
    if [[ "$?" -ne 0 ]]; then
       err 'Failed to compile'
       exit 40
@@ -34,19 +34,22 @@ function compile() {
 
 function buildClasspath() {
    if [ -e "${CLASSPATH_FILE}" ]; then
-      echo "Classpath found cached, skipping classpath build."
       return
    fi
 
-   mvn dependency:build-classpath -Dmdep.outputFile="${CLASSPATH_FILE}"
+   mvn dependency:build-classpath -Dmdep.outputFile="${CLASSPATH_FILE}" > /dev/null
    if [[ "$?" -ne 0 ]]; then
       err 'Failed to build classpath'
       exit 50
    fi
 }
 
+# Params:
+#  - db type
+#  - num users
+#  - num runs
 function run() {
-   java -cp ./target/classes:$(cat ${CLASSPATH_FILE}) ${TARGET_CLASS}
+   java -cp ./target/classes:$(cat ${CLASSPATH_FILE}) ${TARGET_CLASS} $1 $2 $3
    if [[ "$?" -ne 0 ]]; then
       err 'Failed to run'
       exit 60
@@ -57,7 +60,11 @@ function main() {
    check_requirements
    compile
    buildClasspath
-   run
+
+   run 'memory' 10  100
+   run 'memory' 22  100
+   run 'memory' 47  50
+   run 'memory' 101 10
 }
 
 main "$@"
