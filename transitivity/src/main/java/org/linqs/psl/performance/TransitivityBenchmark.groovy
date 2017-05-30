@@ -37,6 +37,8 @@ public class TransitivityBenchmark {
    private static final String DB_PATH = Paths.get('.', 'TransitivityBenchmark').toString();
    private static final long SEED = 4;
 
+   private static final int MEGABYTES = 1024 * 1024;
+
    private DataStore dataStore;
    private PSLModel model;
    private int numUsers;
@@ -112,7 +114,7 @@ public class TransitivityBenchmark {
    /**
     * Run inference and get the runtime.
     */
-   private long runInference() {
+   private RunResults runInference() {
       HashSet closed = new HashSet<StandardPredicate>([Similar]);
       Database inferDB = dataStore.getDatabase(dataStore.getPartition(PARTITION_TARGETS),
                                                closed, dataStore.getPartition(PARTITION_OBSERVATIONS));
@@ -122,16 +124,18 @@ public class TransitivityBenchmark {
       mpe.mpeInference();
       long endTime = System.currentTimeMillis();
 
+      int memory = Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory();
+
       mpe.close();
       inferDB.close();
 
-      return Math.max(0, endTime - startTime);
+      return new RunResults(Math.max(0, endTime - startTime), Math.max(0, memory));
    }
 
    /**
     * Run the entire process and return the runtime (in ms) of inference.
     */
-   public long run() {
+   public RunResults run() {
       definePredicates();
       defineRules();
       loadData();
@@ -154,41 +158,72 @@ public class TransitivityBenchmark {
       long minTime = 0;
       long maxTime = 0;
 
+      long totalMemory = 0;
+      int minMemory = 0;
+      int maxMemory = 0;
+
       // The cold start is a special case, do not include it in the total runtimes.
-      long coldStart = 0;
+      long coldStartRuntime = 0;
+      int coldStartMemory = 0;
 
       for (int i = 0; i < numRuns + 1; i++) {
+         System.gc();
+
          TransitivityBenchmark tb = new TransitivityBenchmark(dbType, numUsers);
-         long runtime = tb.run();
+         RunResults results = tb.run();
          tb.close();
 
          if (i == 0) {
-            coldStart = runtime;
+            coldStartRuntime = results.runtime;
+            coldStartMemory = results.memory;
             continue;
          }
 
-         totalTime += runtime;
+         // Time
 
-         if (i == 1 || runtime < minTime) {
-            minTime = runtime;
+         totalTime += results.runtime;
+
+         if (i == 1 || results.runtime < minTime) {
+            minTime = results.runtime;
          }
 
-         if (i == 1 || runtime > maxTime) {
-            maxTime = runtime;
+         if (i == 1 || results.runtime > maxTime) {
+            maxTime = results.runtime;
+         }
+
+         // Memory
+
+         totalMemory += results.memory;
+
+         if (i == 1 || results.memory < minMemory) {
+            minMemory = results.memory;
+         }
+
+         if (i == 1 || results.memory > maxMemory) {
+            maxMemory = results.memory;
          }
       }
-      
+
       System.out.println(String.format(
-         "numUsers: %d, dbType: %s, numRuns: %d, totalTime: %d, coldStart: %d, minTime: %d, maxTime: %d, meanTime: %d",
+         "Num Users: %d; DB Type: %s; Num Runs: %d; " +
+            "Runtime -- Total: %d, Cold Start: %d, Min: %d, Max: %d, Mean: %d; " +
+            "Memory (MB) -- Cold Start: %d, Min: %d, Max: %d, Mean: %d",
          numUsers,
          dbType,
          numRuns,
+         // Time
          totalTime,
-         coldStart,
+         coldStartRuntime,
          minTime,
          maxTime,
-         (long)(totalTime / numRuns)
+         (long)(totalTime / numRuns),
+         // Memory
+         (int)(coldStartMemory / MEGABYTES),
+         (int)(minMemory / MEGABYTES),
+         (int)(maxMemory / MEGABYTES),
+         (int)(totalMemory / numRuns / MEGABYTES)
       ));
+      System.out.flush();
    }
 
    public static void main(String[] args) {
@@ -202,7 +237,7 @@ public class TransitivityBenchmark {
          System.exit(1);
       }
 
-      H2DatabaseDriver.Type dbType = null; 
+      H2DatabaseDriver.Type dbType = null;
       int numUsers = -1;
       int numRuns = -1;
 
@@ -241,5 +276,16 @@ public class TransitivityBenchmark {
       }
 
       doRuns(dbType, numUsers, numRuns);
+   }
+
+   private static class RunResults {
+      public long runtime;
+      // In bytes.
+      public int memory;
+
+      public RunResults(long runtime, int memory) {
+         this.runtime = runtime;
+         this.memory = memory;
+      }
    }
 }
